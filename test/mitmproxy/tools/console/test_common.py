@@ -2,7 +2,10 @@ import urwid
 
 from mitmproxy.test import tflow
 from mitmproxy.tools.console import common
+from mitmproxy.tools.console.common import extract_usage_tokens
 from mitmproxy.tools.console.common import format_duration
+from mitmproxy.tools.console.common import format_tokens
+from mitmproxy.tools.console.common import format_ttft
 
 
 def test_format_flow():
@@ -34,6 +37,42 @@ def test_format_keyvals():
     )
     assert wrapped.render((30,))
     assert common.format_keyvals([("aa", wrapped)])
+
+
+def test_extract_usage_tokens():
+    assert extract_usage_tokens(
+        b'{"usage": {"input_tokens": 10, "output_tokens": 20}}'
+    ) == (10, 20)
+    assert extract_usage_tokens(
+        b'{"usage": {"prompt_tokens": 11, "completion_tokens": 22}}'
+    ) == (11, 22)
+    assert extract_usage_tokens(b"not json at all") == (None, None)
+    assert extract_usage_tokens(b'{"usage":') == (None, None)
+    assert extract_usage_tokens(b'{"foo": "bar"}') == (None, None)
+    assert extract_usage_tokens(b"{}") == (None, None)
+    assert extract_usage_tokens(
+        b'{"usage": {"input_tokens": "not an int", "output_tokens": 5}}'
+    ) == (None, 5)
+    assert extract_usage_tokens(
+        b'{"usage": {"input_tokens": 5, "output_tokens": "nope"}}'
+    ) == (5, None)
+    assert extract_usage_tokens(b"") == (None, None)
+
+
+def test_format_tokens():
+    assert format_tokens(None) == ""
+    assert format_tokens(0) == "0"
+    assert format_tokens(100) == "100"
+    assert format_tokens(999) == "999"
+    assert format_tokens(1200) == "1.2k"
+    assert format_tokens(1000) == "1.0k"
+    assert format_tokens(1100000) == "1.1M"
+
+
+def test_format_ttft():
+    assert format_ttft(None) == ""
+    assert format_ttft(0.042) == "42ms"
+    assert format_ttft(1.2) == "1200ms"
 
 
 def test_truncated_text():

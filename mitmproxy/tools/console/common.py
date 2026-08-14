@@ -1,4 +1,5 @@
 import enum
+import json
 import math
 import platform
 from collections.abc import Iterable
@@ -338,6 +339,58 @@ def format_duration(duration: float) -> tuple[str, str]:
         99 - 100 * min(math.log2(max(1.0, 1000 * duration)) / 12, 0.99)
     )
     return pretty_duration, style
+
+
+def extract_usage_tokens(content: bytes) -> tuple[int | None, int | None]:
+    """
+    Extract (input_tokens, output_tokens) from an inference provider's JSON
+    response body. Returns (None, None) if the content is not usable JSON or
+    carries no usable usage object.
+    """
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except Exception:
+        return (None, None)
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return (None, None)
+    input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
+    output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
+    try:
+        input_tokens = int(input_tokens) if input_tokens is not None else None
+    except (TypeError, ValueError):
+        input_tokens = None
+    try:
+        output_tokens = int(output_tokens) if output_tokens is not None else None
+    except (TypeError, ValueError):
+        output_tokens = None
+    if input_tokens is None and output_tokens is None:
+        return (None, None)
+    return (input_tokens, output_tokens)
+
+
+def format_tokens(n: int | None) -> str:
+    """
+    Compact token count renderer:
+    - None -> ""
+    - < 1000 -> "n"
+    - < 1000000 -> "x.yk"
+    - else -> "x.yM"
+    """
+    if n is None:
+        return ""
+    if n < 1000:
+        return str(n)
+    if n < 1000000:
+        return f"{n / 1000:.1f}k"
+    return f"{n / 1000000:.1f}M"
+
+
+def format_ttft(seconds: float | None) -> str:
+    """Time to first token in milliseconds, or "" when None."""
+    if seconds is None:
+        return ""
+    return f"{seconds * 1000:.0f}ms"
 
 
 def format_size(num_bytes: int) -> tuple[str, str]:
