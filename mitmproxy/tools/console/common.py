@@ -351,6 +351,8 @@ def extract_usage_tokens(content: bytes) -> tuple[int | None, int | None]:
         data = json.loads(content.decode("utf-8"))
     except Exception:
         return (None, None)
+    if not isinstance(data, dict):
+        return (None, None)
     usage = data.get("usage")
     if not isinstance(usage, dict):
         return (None, None)

@@ -50,6 +50,9 @@ def test_extract_usage_tokens():
     assert extract_usage_tokens(b'{"usage":') == (None, None)
     assert extract_usage_tokens(b'{"foo": "bar"}') == (None, None)
     assert extract_usage_tokens(b"{}") == (None, None)
+    assert extract_usage_tokens(b"[]") == (None, None)
+    assert extract_usage_tokens(b"null") == (None, None)
+    assert extract_usage_tokens(b"123") == (None, None)
     assert extract_usage_tokens(
         b'{"usage": {"input_tokens": "not an int", "output_tokens": 5}}'
     ) == (None, 5)
