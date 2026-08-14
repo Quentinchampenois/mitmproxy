@@ -6,6 +6,7 @@ from functools import lru_cache
 import urwid
 
 import mitmproxy.tools.console.master
+from mitmproxy.http import HTTPFlow
 from mitmproxy.tools.console import commandexecutor
 from mitmproxy.tools.console import common
 from mitmproxy.tools.console import flowlist
@@ -203,6 +204,40 @@ class ActionBar(urwid.WidgetWrap):
             signals.status_message.send(message=msg, expire=1)
 
 
+def compute_usage_totals(flows) -> tuple[int, int, int]:
+    """
+    Compute running sums of inference input/output tokens across flows.
+
+    Returns (sum_in, sum_out, count): the number of flows that contributed at
+    least one token side.
+    """
+    sum_in = 0
+    sum_out = 0
+    count = 0
+    for f in flows:
+        if not isinstance(f, HTTPFlow):
+            continue
+        if not f.response or f.response.raw_content is None:
+            continue
+        content_type = f.response.headers.get("content-type", "")
+        if "json" not in content_type:
+            continue
+        input_tokens, output_tokens = common.extract_usage_tokens(
+            f.response.raw_content
+        )
+        if input_tokens is not None:
+            sum_in += input_tokens
+        else:
+            input_tokens = 0
+        if output_tokens is not None:
+            sum_out += output_tokens
+        else:
+            output_tokens = 0
+        if input_tokens or output_tokens:
+            count += 1
+    return (sum_in, sum_out, count)
+
+
 class StatusBar(urwid.WidgetWrap):
     REFRESHTIME = 0.5  # Timed refresh time in seconds
     keyctx = ""
@@ -317,6 +352,9 @@ class StatusBar(urwid.WidgetWrap):
 
         if self.master.options.save_stream_file:
             r.append("[W:%s]" % self.master.options.save_stream_file)
+
+        sum_in, sum_out, _ = compute_usage_totals(self.master.view)
+        r.append(f"[tok \u2191{sum_in} \u2193{sum_out}]")
 
         return r
 
