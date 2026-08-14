@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from collections.abc import Iterable
 from functools import lru_cache
 
 import urwid
 
 import mitmproxy.tools.console.master
+from mitmproxy import flow
 from mitmproxy.http import HTTPFlow
 from mitmproxy.tools.console import commandexecutor
 from mitmproxy.tools.console import common
@@ -204,7 +206,7 @@ class ActionBar(urwid.WidgetWrap):
             signals.status_message.send(message=msg, expire=1)
 
 
-def compute_usage_totals(flows) -> tuple[int, int, int]:
+def compute_usage_totals(flows: Iterable[flow.Flow]) -> tuple[int, int, int]:
     """
     Compute running sums of inference input/output tokens across flows.
 
@@ -225,15 +227,11 @@ def compute_usage_totals(flows) -> tuple[int, int, int]:
         input_tokens, output_tokens = common.extract_usage_tokens(
             f.response.raw_content
         )
-        if input_tokens is not None:
-            sum_in += input_tokens
-        else:
-            input_tokens = 0
-        if output_tokens is not None:
-            sum_out += output_tokens
-        else:
-            output_tokens = 0
-        if input_tokens or output_tokens:
+        in_tokens = input_tokens if input_tokens is not None else 0
+        out_tokens = output_tokens if output_tokens is not None else 0
+        sum_in += in_tokens
+        sum_out += out_tokens
+        if in_tokens or out_tokens:
             count += 1
     return (sum_in, sum_out, count)
 
@@ -247,16 +245,24 @@ class StatusBar(urwid.WidgetWrap):
         self.ib = urwid.WidgetWrap(urwid.Text(""))
         self.ab = ActionBar(self.master)
         super().__init__(urwid.Pile([self.ib, self.ab]))
-        signals.flow_change.connect(self.sig_update)
+        self._usage_totals = (0, 0, 0)
+        self._usage_dirty = True
+        signals.flow_change.connect(self._sig_flow_changed)
+        master.view.sig_view_add.connect(self._sig_flow_changed)
+        master.view.sig_view_update.connect(self._sig_flow_changed)
+        master.view.sig_view_remove.connect(self._sig_flow_changed)
         signals.update_settings.connect(self.sig_update)
         master.options.changed.connect(self.sig_update)
         master.view.focus.sig_change.connect(self.sig_update)
-        master.view.sig_view_add.connect(self.sig_update)
         self.refresh()
 
     def refresh(self) -> None:
         self.redraw()
         signals.call_in.send(seconds=self.REFRESHTIME, callback=self.refresh)
+
+    def _sig_flow_changed(self, *args, **kwargs) -> None:
+        self._usage_dirty = True
+        self.redraw()
 
     def sig_update(self, *args, **kwargs) -> None:
         self.redraw()
@@ -353,7 +359,10 @@ class StatusBar(urwid.WidgetWrap):
         if self.master.options.save_stream_file:
             r.append("[W:%s]" % self.master.options.save_stream_file)
 
-        sum_in, sum_out, _ = compute_usage_totals(self.master.view)
+        if self._usage_dirty:
+            self._usage_totals = compute_usage_totals(self.master.view)
+            self._usage_dirty = False
+        sum_in, sum_out, _ = self._usage_totals
         r.append(f"[tok \u2191{sum_in} \u2193{sum_out}]")
 
         return r

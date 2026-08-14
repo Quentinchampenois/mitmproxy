@@ -40,6 +40,7 @@ def test_format_flow_inference():
     )
     assert "\u219112" not in plain_list_text
     assert "1000ms" not in plain_list_text
+    assert "7b" in plain_list_text
 
 
 def test_format_durations():
@@ -101,6 +102,7 @@ def test_format_ttft():
     assert format_ttft(None) == ""
     assert format_ttft(0.042) == "42ms"
     assert format_ttft(1.2) == "1200ms"
+    assert format_ttft(-0.1) == "0ms"
 
 
 def test_truncated_text():

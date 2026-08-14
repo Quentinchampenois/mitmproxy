@@ -392,6 +392,8 @@ def format_ttft(seconds: float | None) -> str:
     """Time to first token in milliseconds, or "" when None."""
     if seconds is None:
         return ""
+    if seconds < 0:
+        seconds = 0
     return f"{seconds * 1000:.0f}ms"
 
 
