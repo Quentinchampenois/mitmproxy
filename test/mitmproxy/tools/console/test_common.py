@@ -8,6 +8,11 @@ from mitmproxy.tools.console.common import format_tokens
 from mitmproxy.tools.console.common import format_ttft
 
 
+def _canvas_text(widget: urwid.Widget, cols: int = 200) -> str:
+    urwid.set_encoding("utf8")
+    return "\n".join(row.decode("utf-8") for row in widget.render((cols,)).text)
+
+
 def test_format_flow():
     for f in tflow.tflows():
         for render_mode in common.RenderMode:
@@ -15,6 +20,26 @@ def test_format_flow():
             assert common.format_flow(
                 f, render_mode=render_mode, hostheader=True, focused=False
             )
+
+
+def test_format_flow_inference():
+    urwid.set_encoding("utf8")
+    content = b'{"usage": {"input_tokens": 12, "output_tokens": 34}}'
+    f = tflow.tflow(resp=tflow.tresp(content=content))
+
+    list_text = _canvas_text(common.format_flow(f, render_mode=common.RenderMode.LIST))
+    assert "\u219112 \u219334 1000ms" in list_text
+
+    table_text = _canvas_text(
+        common.format_flow(f, render_mode=common.RenderMode.TABLE)
+    )
+    assert "12/34 1000ms" in table_text
+
+    plain_list_text = _canvas_text(
+        common.format_flow(tflow.tflow(resp=True), render_mode=common.RenderMode.LIST)
+    )
+    assert "\u219112" not in plain_list_text
+    assert "1000ms" not in plain_list_text
 
 
 def test_format_durations():

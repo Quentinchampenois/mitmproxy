@@ -454,6 +454,9 @@ def format_http_flow_list(
     response_content_type: str | None,
     duration: float | None,
     error_message: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    ttft: float | None,
 ) -> urwid.Widget:
     req = []
 
@@ -508,15 +511,21 @@ def format_http_flow_list(
             ct, ct_style = format_http_content_type(response_content_type)
             resp.append(fcol(ct, style or ct_style))
 
-        if response_content_length:
-            size, size_style = format_size(response_content_length)
-        elif response_content_length == 0:
-            size = "[no content]"
-            size_style = "text"
+        if input_tokens is not None or output_tokens is not None:
+            size = f"\u2191{format_tokens(input_tokens)} \u2193{format_tokens(output_tokens)}"
+            if ttft is not None:
+                size += " " + format_ttft(ttft)
+            resp.append(fcol(size, style or "text"))
         else:
-            size = "[content missing]"
-            size_style = "text"
-        resp.append(fcol(size, style or size_style))
+            if response_content_length:
+                size, size_style = format_size(response_content_length)
+            elif response_content_length == 0:
+                size = "[no content]"
+                size_style = "text"
+            else:
+                size = "[content missing]"
+                size_style = "text"
+            resp.append(fcol(size, style or size_style))
 
         if duration:
             dur, dur_style = format_duration(duration)
@@ -552,6 +561,9 @@ def format_http_flow_table(
     response_content_type: str | None,
     duration: float | None,
     error_message: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    ttft: float | None,
 ) -> urwid.Widget:
     items = [
         format_left_indicators(
@@ -625,11 +637,16 @@ def format_http_flow_table(
     items.append(fcol(fixlen(status, 3), status_style))
     items.append(("weight", 0.15, truncated_plain(content, content_style, "right")))
 
-    if response_content_length:
+    if input_tokens is not None or output_tokens is not None:
+        size = f"{format_tokens(input_tokens)}/{format_tokens(output_tokens)}"
+        if ttft is not None:
+            size += " " + format_ttft(ttft)
+        items.append(fcol(fixlen_r(size, 13), response_style or "text"))
+    elif response_content_length:
         size, size_style = format_size(response_content_length)
-        items.append(fcol(fixlen_r(size, 5), response_style or size_style))
+        items.append(fcol(fixlen_r(size, 13), response_style or size_style))
     else:
-        items.append(("fixed", 5, urwid.Text("")))
+        items.append(("fixed", 13, urwid.Text("")))
 
     if duration:
         duration_pretty, duration_style = format_duration(duration)
@@ -860,9 +877,14 @@ def format_flow(
     elif isinstance(f, HTTPFlow):
         intercepted = f.intercepted
         response_content_length: int | None
+        input_tokens, output_tokens = None, None
+        ttft = None
         if f.response:
             if f.response.raw_content is not None:
                 response_content_length = len(f.response.raw_content)
+                input_tokens, output_tokens = extract_usage_tokens(
+                    f.response.raw_content
+                )
             else:
                 response_content_length = None
             response_code: int | None = f.response.status_code
@@ -874,6 +896,11 @@ def format_flow(
                 )
             else:
                 duration = None
+            if (
+                f.response.timestamp_start is not None
+                and f.request.timestamp_end is not None
+            ):
+                ttft = f.response.timestamp_start - f.request.timestamp_end
         else:
             response_content_length = None
             response_code = None
@@ -912,6 +939,9 @@ def format_flow(
             response_content_type=response_content_type,
             duration=duration,
             error_message=error_message,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            ttft=ttft,
         )
 
     else:
