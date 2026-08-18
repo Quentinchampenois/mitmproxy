@@ -70,6 +70,15 @@ class Palette:
         "intercept",
         "replay",
         "mark",
+        # Inference token usage
+        "token_in_green",
+        "token_in_yellow",
+        "token_in_orange",
+        "token_in_red",
+        "token_out_green",
+        "token_out_yellow",
+        "token_out_orange",
+        "token_out_red",
         # Contentview Syntax Highlighting
         "name",
         "string",
@@ -210,6 +219,15 @@ class LowDark(Palette):
         intercept=("brown", "default"),
         replay=("light green", "default"),
         mark=("light red", "default"),
+        # Inference token usage
+        token_in_green=("light green", "default"),
+        token_in_yellow=("yellow", "default"),
+        token_in_orange=("brown", "default"),
+        token_in_red=("light red", "default"),
+        token_out_green=("light green", "default"),
+        token_out_yellow=("yellow", "default"),
+        token_out_orange=("brown", "default"),
+        token_out_red=("light red", "default"),
         # Contentview Syntax Highlighting
         name=("dark green", "default"),
         string=("dark blue", "default"),
@@ -309,6 +327,15 @@ class LowLight(Palette):
         intercept=("brown", "default"),
         replay=("dark green", "default"),
         mark=("dark red", "default"),
+        # Inference token usage
+        token_in_green=("dark green", "default"),
+        token_in_yellow=("brown", "default"),
+        token_in_orange=("dark red", "default"),
+        token_in_red=("light red", "default"),
+        token_out_green=("dark green", "default"),
+        token_out_yellow=("brown", "default"),
+        token_out_orange=("dark red", "default"),
+        token_out_red=("light red", "default"),
         # Contentview Syntax Highlighting
         name=("dark green", "default"),
         string=("dark blue", "default"),

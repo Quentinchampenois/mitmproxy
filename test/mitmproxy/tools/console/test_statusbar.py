@@ -1,7 +1,131 @@
 import pytest
 import urwid
 
+from mitmproxy.test import tflow
 from mitmproxy.tools.console import statusbar
+from mitmproxy.tools.console.statusbar import compute_usage_totals
+
+
+def _json_resp(content: bytes):
+    from mitmproxy.http import Headers
+
+    return tflow.tresp(
+        content=content,
+        headers=Headers(((b"content-type", b"application/json"),)),
+    )
+
+
+def test_compute_usage_totals_sums_multiple_flows():
+    flows = [
+        tflow.tflow(
+            resp=_json_resp(b'{"usage": {"input_tokens": 10, "output_tokens": 20}}')
+        ),
+        tflow.tflow(
+            resp=_json_resp(b'{"usage": {"input_tokens": 5, "output_tokens": 7}}')
+        ),
+    ]
+    assert compute_usage_totals(flows) == (15, 27, 2)
+
+
+def test_compute_usage_totals_skips_non_json():
+    flows = [
+        tflow.tflow(resp=tflow.tresp(content=b"plain text body")),
+        tflow.tflow(
+            resp=_json_resp(b'{"usage": {"input_tokens": 3, "output_tokens": 4}}')
+        ),
+    ]
+    assert compute_usage_totals(flows) == (3, 4, 1)
+
+
+def test_compute_usage_totals_skips_no_response():
+    flows = [
+        tflow.tflow(resp=False),
+        tflow.tflow(
+            resp=_json_resp(b'{"usage": {"input_tokens": 2, "output_tokens": 3}}')
+        ),
+    ]
+    assert compute_usage_totals(flows) == (2, 3, 1)
+
+
+def test_compute_usage_totals_accumulates_fallback_variants():
+    flows = [
+        tflow.tflow(
+            resp=_json_resp(b'{"usage": {"prompt_tokens": 11, "completion_tokens": 22}}')
+        ),
+        tflow.tflow(
+            resp=_json_resp(b'{"usage": {"input_tokens": 1, "output_tokens": 2}}')
+        ),
+    ]
+    assert compute_usage_totals(flows) == (12, 24, 2)
+
+
+def test_compute_usage_totals_no_inference_flows():
+    assert compute_usage_totals([]) == (0, 0, 0)
+    flows = [tflow.tflow(resp=tflow.tresp(content=b"not json"))]
+    assert compute_usage_totals(flows) == (0, 0, 0)
+
+
+def test_compute_usage_totals_skips_missing_body():
+    flows = [
+        tflow.tflow(
+            resp=_json_resp(
+                b'{"usage": {"input_tokens": 1, "output_tokens": 2}}'
+            )
+        ),
+        tflow.tflow(resp=tflow.tresp(content=None)),
+    ]
+    assert compute_usage_totals(flows) == (1, 2, 1)
+
+
+def test_compute_usage_totals_decompresses_encoded_bodies():
+    from mitmproxy.http import Headers
+    from mitmproxy.net import encoding
+
+    payload = b'{"usage": {"input_tokens": 10, "output_tokens": 20}}'
+    flows = [
+        tflow.tflow(
+            resp=tflow.tresp(
+                content=encoding.encode(payload, "gzip"),
+                headers=Headers(
+                    (
+                        (b"content-type", b"application/json"),
+                        (b"content-encoding", b"gzip"),
+                    )
+                ),
+            )
+        ),
+        tflow.tflow(
+            resp=tflow.tresp(
+                content=encoding.encode(payload, "br"),
+                headers=Headers(
+                    (
+                        (b"content-type", b"application/json"),
+                        (b"content-encoding", b"br"),
+                    )
+                ),
+            )
+        ),
+    ]
+    assert compute_usage_totals(flows) == (20, 40, 2)
+
+
+def test_compute_usage_totals_event_stream():
+    from mitmproxy.http import Headers
+
+    sse = (
+        b'data: {"delta": {"content": "he"}, "usage": null}\n\n'
+        b'data: {"choices": [], "usage": {"input_tokens": 10, "output_tokens": 20}}\n\n'
+        b"data: [DONE]\n\n"
+    )
+    flows = [
+        tflow.tflow(
+            resp=tflow.tresp(
+                content=sse,
+                headers=Headers(((b"content-type", b"text/event-stream"),)),
+            )
+        )
+    ]
+    assert compute_usage_totals(flows) == (10, 20, 1)
 
 
 async def test_statusbar(console, monkeypatch):
