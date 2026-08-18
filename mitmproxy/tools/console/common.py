@@ -4,6 +4,7 @@ import math
 import platform
 from collections.abc import Iterable
 from functools import lru_cache
+from typing import Any
 
 import urwid.util
 from publicsuffix2 import get_sld
@@ -341,21 +342,8 @@ def format_duration(duration: float) -> tuple[str, str]:
     return pretty_duration, style
 
 
-def extract_usage_tokens(content: bytes) -> tuple[int | None, int | None]:
-    """
-    Extract (input_tokens, output_tokens) from an inference provider's JSON
-    response body. Returns (None, None) if the content is not usable JSON or
-    carries no usable usage object.
-    """
-    try:
-        data = json.loads(content.decode("utf-8"))
-    except Exception:
-        return (None, None)
-    if not isinstance(data, dict):
-        return (None, None)
-    usage = data.get("usage")
-    if not isinstance(usage, dict):
-        return (None, None)
+def _usage_tokens_from_usage(usage: Any) -> tuple[int | None, int | None]:
+    """Extract token counts from a dict-like usage object."""
     input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
     output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
     try:
@@ -369,6 +357,39 @@ def extract_usage_tokens(content: bytes) -> tuple[int | None, int | None]:
     if input_tokens is None and output_tokens is None:
         return (None, None)
     return (input_tokens, output_tokens)
+
+
+def extract_usage_tokens(content: bytes | None) -> tuple[int | None, int | None]:
+    """
+    Extract (input_tokens, output_tokens) from an inference provider's JSON or
+    Server-Sent-Events (SSE) response body. Returns (None, None) if no usable
+    usage object (a JSON dict carrying token counts) is found.
+    """
+    if content is None:
+        return (None, None)
+    candidates = [content]
+    text = content.decode("utf-8", "replace")
+    # SSE bodies carry one JSON object per "data:" line. Extract each event so
+    # json.loads can succeed even though the body as a whole is not valid JSON.
+    candidates.extend(
+        line.strip()[len("data:") :].strip().encode("utf-8", "replace")
+        for line in text.splitlines()
+        if line.strip().startswith("data:")
+    )
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate.decode("utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        usage = data.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        result = _usage_tokens_from_usage(usage)
+        if result != (None, None):
+            return result
+    return (None, None)
 
 
 def format_tokens(n: int | None) -> str:
@@ -395,6 +416,56 @@ def format_ttft(seconds: float | None) -> str:
     if seconds < 0:
         seconds = 0
     return f"{seconds * 1000:.0f}ms"
+
+
+INPUT_TOKEN_THRESHOLDS = [
+    (10000, "token_in_green"),
+    (40000, "token_in_yellow"),
+    (120000, "token_in_orange"),
+]
+
+OUTPUT_TOKEN_THRESHOLDS = [
+    (600, "token_out_green"),
+    (1200, "token_out_yellow"),
+    (4000, "token_out_orange"),
+]
+
+
+def input_token_style(tokens: int | None) -> str:
+    """Palette style for an input token count based on severity thresholds."""
+    if tokens is None:
+        return "text"
+    for threshold, style in INPUT_TOKEN_THRESHOLDS:
+        if tokens < threshold:
+            return style
+    return "token_in_red"
+
+
+def output_token_style(tokens: int | None) -> str:
+    """Palette style for an output token count based on severity thresholds."""
+    if tokens is None:
+        return "text"
+    for threshold, style in OUTPUT_TOKEN_THRESHOLDS:
+        if tokens < threshold:
+            return style
+    return "token_out_red"
+
+
+def format_usage_markup(
+    input_tokens: int | None,
+    output_tokens: int | None,
+    ttft: float | None,
+    style: str,
+) -> list[tuple[str, str]]:
+    """Colored (attr, text) markup for the token usage widget in list view."""
+    markup = [
+        (style or input_token_style(input_tokens), f"\u2191{format_tokens(input_tokens)}"),
+        ("text", " "),
+        (style or output_token_style(output_tokens), f"\u2193{format_tokens(output_tokens)}"),
+    ]
+    if ttft is not None:
+        markup.append(("text", " " + format_ttft(ttft)))
+    return markup
 
 
 def format_size(num_bytes: int) -> tuple[str, str]:
@@ -514,10 +585,19 @@ def format_http_flow_list(
             resp.append(fcol(ct, style or ct_style))
 
         if input_tokens is not None or output_tokens is not None:
-            size = f"\u2191{format_tokens(input_tokens)} \u2193{format_tokens(output_tokens)}"
-            if ttft is not None:
-                size += " " + format_ttft(ttft)
-            resp.append(fcol(size, style or "text"))
+            markup = format_usage_markup(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                ttft=ttft,
+                style=style,
+            )
+            resp.append(
+                (
+                    "fixed",
+                    sum(len(s) for _, s in markup),
+                    urwid.Text(markup),
+                )
+            )
         else:
             if response_content_length:
                 size, size_style = format_size(response_content_length)
@@ -640,10 +720,22 @@ def format_http_flow_table(
     items.append(("weight", 0.15, truncated_plain(content, content_style, "right")))
 
     if input_tokens is not None or output_tokens is not None:
-        size = f"{format_tokens(input_tokens)}/{format_tokens(output_tokens)}"
+        in_style = response_style or input_token_style(input_tokens)
+        out_style = response_style or output_token_style(output_tokens)
+        markup = [
+            (in_style, format_tokens(input_tokens)),
+            (out_style, f"/{format_tokens(output_tokens)}"),
+        ]
         if ttft is not None:
-            size += " " + format_ttft(ttft)
-        items.append(fcol(fixlen_r(size, 13), response_style or "text"))
+            markup.append(("text", " " + format_ttft(ttft)))
+        text = "".join(s for _, s in markup)
+        items.append(
+            (
+                "fixed",
+                13 if len(text) <= 13 else len(text),
+                urwid.Text(markup, align="right"),
+            )
+        )
     elif response_content_length:
         size, size_style = format_size(response_content_length)
         items.append(fcol(fixlen_r(size, 13), response_style or size_style))
@@ -885,7 +977,7 @@ def format_flow(
             if f.response.raw_content is not None:
                 response_content_length = len(f.response.raw_content)
                 input_tokens, output_tokens = extract_usage_tokens(
-                    f.response.raw_content
+                    f.response.get_content(strict=False)
                 )
             else:
                 response_content_length = None

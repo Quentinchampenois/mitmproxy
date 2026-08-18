@@ -222,10 +222,10 @@ def compute_usage_totals(flows: Iterable[flow.Flow]) -> tuple[int, int, int]:
         if not f.response or f.response.raw_content is None:
             continue
         content_type = f.response.headers.get("content-type", "")
-        if "json" not in content_type:
+        if "json" not in content_type and "event-stream" not in content_type:
             continue
         input_tokens, output_tokens = common.extract_usage_tokens(
-            f.response.raw_content
+            f.response.get_content(strict=False)
         )
         in_tokens = input_tokens if input_tokens is not None else 0
         out_tokens = output_tokens if output_tokens is not None else 0

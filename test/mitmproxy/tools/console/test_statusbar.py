@@ -77,6 +77,57 @@ def test_compute_usage_totals_skips_missing_body():
     assert compute_usage_totals(flows) == (1, 2, 1)
 
 
+def test_compute_usage_totals_decompresses_encoded_bodies():
+    from mitmproxy.http import Headers
+    from mitmproxy.net import encoding
+
+    payload = b'{"usage": {"input_tokens": 10, "output_tokens": 20}}'
+    flows = [
+        tflow.tflow(
+            resp=tflow.tresp(
+                content=encoding.encode(payload, "gzip"),
+                headers=Headers(
+                    (
+                        (b"content-type", b"application/json"),
+                        (b"content-encoding", b"gzip"),
+                    )
+                ),
+            )
+        ),
+        tflow.tflow(
+            resp=tflow.tresp(
+                content=encoding.encode(payload, "br"),
+                headers=Headers(
+                    (
+                        (b"content-type", b"application/json"),
+                        (b"content-encoding", b"br"),
+                    )
+                ),
+            )
+        ),
+    ]
+    assert compute_usage_totals(flows) == (20, 40, 2)
+
+
+def test_compute_usage_totals_event_stream():
+    from mitmproxy.http import Headers
+
+    sse = (
+        b'data: {"delta": {"content": "he"}, "usage": null}\n\n'
+        b'data: {"choices": [], "usage": {"input_tokens": 10, "output_tokens": 20}}\n\n'
+        b"data: [DONE]\n\n"
+    )
+    flows = [
+        tflow.tflow(
+            resp=tflow.tresp(
+                content=sse,
+                headers=Headers(((b"content-type", b"text/event-stream"),)),
+            )
+        )
+    ]
+    assert compute_usage_totals(flows) == (10, 20, 1)
+
+
 async def test_statusbar(console, monkeypatch):
     console.options.update(
         modify_headers=[":~q:foo:bar"],
