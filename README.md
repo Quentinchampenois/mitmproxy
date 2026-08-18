@@ -13,6 +13,17 @@ interface for HTTP/1, HTTP/2, and WebSockets.
 
 ``mitmweb`` is a web-based interface for mitmproxy.
 
+## 💡 Fork of mitmproxy to be used with OpenAI-compliant AI Endpoints
+
+It displays for each request in the flow-row the current usages Input / Output and TTFT. 
+A sum of all usages is present in the status bar
+
+Preview:
+<img width="907" height="268" alt="Screenshot 2026-08-18 at 23 23 14" src="https://github.com/user-attachments/assets/c943eaf9-4df0-47eb-9928-73b6623cf845" />
+
+
+Open to contribution if mitmproxy maintainers are interested
+
 ## Installation
 
 The installation instructions are [here](https://docs.mitmproxy.org/stable/overview-installation).
